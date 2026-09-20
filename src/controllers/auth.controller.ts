@@ -35,23 +35,23 @@ export async function me(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     if (!req.user) throw new CustomError("No autorizado", 401);
     const user = await authService.findById(req.user.userId);
-    res.status(200).json(user);
+    res.status(200).json({ user });
   } catch (error) {
     next(error);
   }
 }
 
-/** PUT /api/auth/password — body: { currentPassword, newPassword } */
+/** PUT /api/auth/password — body: { current, next } */
 export async function changePassword(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     if (!req.user) throw new CustomError("No autorizado", 401);
-    const { currentPassword, newPassword } = req.body ?? {};
-    await authService.changePassword(
+    const { current, next: nextPassword } = req.body ?? {};
+    const user = await authService.changePassword(
       req.user.userId,
-      String(currentPassword ?? ""),
-      String(newPassword ?? ""),
+      String(current ?? ""),
+      String(nextPassword ?? ""),
     );
-    res.status(200).json({ ok: true });
+    res.status(200).json({ user });
   } catch (error) {
     next(error);
   }
@@ -63,7 +63,7 @@ export async function updateProfile(req: AuthRequest, res: Response, next: NextF
     if (!req.user) throw new CustomError("No autorizado", 401);
     const { name, phone } = req.body ?? {};
     const user = await authService.updateProfile(req.user.userId, { name, phone });
-    res.status(200).json(user);
+    res.status(200).json({ user });
   } catch (error) {
     next(error);
   }
