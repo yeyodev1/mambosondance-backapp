@@ -203,7 +203,11 @@ export async function listPublic(query: Input) {
   const { page, limit, skip } = parsePagination(query);
   const filter: Record<string, unknown> = { isPublished: true };
   if (query.type) filter.type = parseEnum(query.type, PRODUCT_TYPES, "El tipo");
-  if (query.level) filter.level = parseEnum(query.level, COURSE_LEVELS, "El nivel");
+  if (query.level) {
+    // Un curso marcado "todos" le sirve a cualquier nivel: aparece en todos los filtros.
+    const level = parseEnum(query.level, COURSE_LEVELS, "El nivel");
+    filter.level = level === "todos" ? level : { $in: [level, "todos"] };
+  }
   if (typeof query.category === "string" && query.category.trim()) {
     filter.category = query.category.trim();
   }
