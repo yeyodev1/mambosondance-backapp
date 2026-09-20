@@ -1,0 +1,79 @@
+{
+  "_nota": "Contenido de DEMOSTRACIÓN para revisar la plataforma. Precios, descripciones y temarios son provisionales: los define el cliente desde el panel. El evento Salsa Social Night sí sale de los gráficos entregados por el cliente. Las imágenes viven en el frontapp (/img) hasta que Cloudinary esté configurado.",
+  "courses": [
+    {
+      "slug": "salsa-desde-cero",
+      "title": "Salsa desde cero",
+      "level": "principiante",
+      "style": "Salsa",
+      "summary": "Cinco sesiones para dar tus primeros pasos sin prisa, desde casa.",
+      "description": "Un paquete de cinco clases grabadas pensado para quien nunca ha bailado o quiere volver a empezar con buena base.\n\nCada sesión se puede repetir las veces que necesites: mantén el ritmo, siente cada momento, vive cada paso.",
+      "priceCents": 2500,
+      "image": "/img/foto-6.jpg",
+      "isFeatured": true,
+      "modules": [
+        { "title": "Primeros pasos", "lessons": ["Bienvenida y postura", "Tiempo y conteo", "Paso básico"] },
+        { "title": "Soltar el cuerpo", "lessons": ["Giro simple", "Tu primera secuencia"] }
+      ]
+    },
+    {
+      "slug": "salsa-nivel-intermedio",
+      "title": "Salsa nivel intermedio",
+      "level": "intermedio",
+      "style": "Salsa",
+      "summary": "Cinco sesiones para ganar fluidez, figuras y conexión en pareja.",
+      "description": "Para quienes ya dominan el básico y quieren sumar figuras, giros y musicalidad.\n\nCinco clases grabadas para practicar a tu ritmo.",
+      "priceCents": 3000,
+      "image": "/img/foto-7.jpg",
+      "isFeatured": true,
+      "modules": [
+        { "title": "Figuras y giros", "lessons": ["Cross body lead", "Giros encadenados", "Cambios de dirección"] },
+        { "title": "Musicalidad", "lessons": ["Escuchar la clave", "Secuencia completa"] }
+      ]
+    },
+    {
+      "slug": "salsa-nivel-avanzado",
+      "title": "Salsa nivel avanzado",
+      "level": "avanzado",
+      "style": "Salsa",
+      "summary": "Cinco sesiones de técnica, estilo y mambo on2.",
+      "description": "Técnica fina, pasos libres y estilo propio para quienes ya bailan con soltura.\n\nCinco clases grabadas para exigirte sin salir de casa.",
+      "priceCents": 3500,
+      "image": "/img/foto-1.jpg",
+      "isFeatured": false,
+      "modules": [
+        { "title": "Técnica", "lessons": ["Giros múltiples", "Pasos libres de mambo", "Bailar on2"] },
+        { "title": "Estilo", "lessons": ["Styling y brazos", "Coreografía final"] }
+      ]
+    }
+  ],
+  "merch": [
+    { "slug": "camiseta-mamboson-blanca", "title": "Camiseta MamboSon blanca", "category": "Camisetas", "priceCents": 2000, "image": "/img/merch-camiseta-blanca.jpg", "gallery": ["/img/merch-camiseta-ritmo.jpg"], "variants": [{ "name": "Talla", "options": ["S", "M", "L", "XL"] }], "summary": "Algodón blanco con el logotipo MamboSon en rojo.", "isFeatured": true },
+    { "slug": "camiseta-negra-sin-prisa", "title": "Camiseta negra oversize", "category": "Camisetas", "priceCents": 2200, "image": "/img/merch-camiseta-negra.jpg", "gallery": ["/img/merch-camiseta-negra-espalda.jpg"], "variants": [{ "name": "Talla", "options": ["S", "M", "L", "XL"] }], "summary": "Negra, corte amplio, con isotipo MS al frente y mensaje en la espalda.", "isFeatured": true },
+    { "slug": "gorra-ms", "title": "Gorra MS", "category": "Accesorios", "priceCents": 1500, "image": "/img/merch-gorra.jpg", "gallery": [], "variants": [], "summary": "Gorra cruda con el isotipo MS bordado en rojo.", "isFeatured": true },
+    { "slug": "tote-bag-mamboson", "title": "Tote bag MamboSon", "category": "Accesorios", "priceCents": 1200, "image": "/img/merch-tote.jpg", "gallery": [], "variants": [], "summary": "Bolso de lona con las ilustraciones de la marca.", "isFeatured": false },
+    { "slug": "pulseras-mamboson", "title": "Pulsera MamboSon", "category": "Pulseras", "priceCents": 300, "image": "/img/merch-pulseras.jpg", "gallery": [], "variants": [{ "name": "Color", "options": ["Rojo", "Blanco", "Vino"] }], "summary": "Pulsera de silicona con el logotipo.", "isFeatured": false },
+    { "slug": "case-mamboson", "title": "Case para celular", "category": "Accesorios", "priceCents": 1000, "image": "/img/merch-case.jpg", "gallery": [], "variants": [], "summary": "Case rojo con el logotipo MamboSon.", "isFeatured": false }
+  ],
+  "events": [
+    {
+      "slug": "salsa-social-night",
+      "title": "Salsa Social Night",
+      "category": "social",
+      "summary": "Una noche de salsa en vivo con orquesta y DJs invitados.",
+      "description": "Salsa Social Night reunió a la comunidad MamboSon en una noche de música en vivo.\n\nCon Manuel Marval y su orquesta, DJ Salomón y DJ Fili Ayala.",
+      "startsAt": "2025-06-27T21:00:00-05:00",
+      "venue": "C.C. Alhambra",
+      "city": "Samborondón",
+      "artists": ["Manuel Marval y su orquesta", "DJ Salomón", "DJ Fili Ayala"],
+      "image": "/img/evento-social-night.jpg",
+      "salesMode": "online",
+      "tiers": [
+        { "name": "1era preventa", "priceCents": 2500 },
+        { "name": "2da preventa", "priceCents": 3000 },
+        { "name": "3era preventa", "priceCents": 3500 }
+      ],
+      "isFeatured": true
+    }
+  ]
+}
