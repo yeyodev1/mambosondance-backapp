@@ -37,9 +37,22 @@ export const env = {
   ADMIN_PASSWORD: optional("ADMIN_PASSWORD", ""),
   ADMIN_NAME: optional("ADMIN_NAME", "Administración"),
   RESEND_API_KEY: optional("RESEND_API_KEY", ""),
-  RESEND_FROM_EMAIL: optional("RESEND_FROM_EMAIL", "Mambosondance <onboarding@resend.dev>"),
+  RESEND_FROM_EMAIL: optional("RESEND_FROM_EMAIL", "MamboSon <team@mambosondance.com>"),
   CLOUDINARY_CLOUD_NAME: optional("CLOUDINARY_CLOUD_NAME", ""),
   CLOUDINARY_API_KEY: optional("CLOUDINARY_API_KEY", ""),
   CLOUDINARY_API_SECRET: optional("CLOUDINARY_API_SECRET", ""),
   CRON_SECRET: optional("CRON_SECRET", ""),
+  // Correo del equipo que recibe el formulario de contacto.
+  TEAM_EMAIL: optional("TEAM_EMAIL", "team@mambosondance.com"),
+  DEMO_STUDENT_EMAIL: optional("DEMO_STUDENT_EMAIL", "").toLowerCase(),
+  DEMO_STUDENT_PASSWORD: optional("DEMO_STUDENT_PASSWORD", ""),
+  // Payphone: sin token el checkout responde 503 en vez de romperse.
+  PAYPHONE_TOKEN: optional("PAYPHONE_TOKEN", ""),
+  PAYPHONE_STORE_ID: optional("PAYPHONE_STORE_ID", ""),
+  BUNNY_LIBRARY_ID: optional("BUNNY_LIBRARY_ID", ""),
+  BUNNY_CDN_HOSTNAME: optional("BUNNY_CDN_HOSTNAME", ""),
+  BUNNY_STREAM_API_KEY: optional("BUNNY_STREAM_API_KEY", ""),
+  BUNNY_STREAM_READ_KEY: optional("BUNNY_STREAM_READ_KEY", ""),
+  BUNNY_ACCOUNT_API_KEY: optional("BUNNY_ACCOUNT_API_KEY", ""),
+  BUNNY_TOKEN_AUTH_KEY: optional("BUNNY_TOKEN_AUTH_KEY", ""),
 } as const;
