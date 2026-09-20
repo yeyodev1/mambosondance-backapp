@@ -258,7 +258,8 @@ export async function findOrCreateUserByEmail(
     resetPasswordExpires: reset.expires,
   });
 
-  return { user, created: true, setPasswordUrl: reset.url };
+  // `nuevo=1` hace que el frontapp titule la pantalla "Define tu contraseña".
+  return { user, created: true, setPasswordUrl: `${reset.url}&nuevo=1` };
 }
 
 /**
