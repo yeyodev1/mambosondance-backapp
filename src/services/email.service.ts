@@ -128,7 +128,7 @@ const links = {
   home: () => env.FRONTEND_URL,
   account: () => `${env.FRONTEND_URL}/cuenta`,
   course: (slug?: string) =>
-    slug ? `${env.FRONTEND_URL}/cuenta/cursos/${slug}` : `${env.FRONTEND_URL}/cuenta`,
+    slug ? `${env.FRONTEND_URL}/mis-clases/${slug}` : `${env.FRONTEND_URL}/cuenta`,
 };
 
 // ─── Correos ───────────────────────────────────────────────────────────
