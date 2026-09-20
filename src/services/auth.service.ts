@@ -1,11 +1,15 @@
 import bcrypt from "bcryptjs";
+import crypto from "crypto";
 import jwt from "jsonwebtoken";
 import { env } from "../config/env";
 import { isConnected } from "../config/mongo";
 import { CustomError } from "../errors/customError.error";
 import { User, IUser } from "../models/user.model";
+import * as emailService from "./email.service";
 
 const TOKEN_TTL = "30d";
+const RESET_TTL_MS = 60 * 60 * 1000;
+const SET_PASSWORD_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
 export interface SessionUser {
@@ -16,7 +20,7 @@ export interface SessionUser {
   accountType: string;
 }
 
-function sanitize(user: any): SessionUser {
+export function sanitize(user: any): SessionUser {
   return {
     id: user._id.toString(),
     email: user.email,
@@ -110,6 +114,151 @@ export async function createUser(input: {
     accountType: input.accountType || "customer",
   });
   return sanitize(user);
+}
+
+export async function register(input: {
+  name: string;
+  email: string;
+  password: string;
+  phone?: string;
+}): Promise<{ token: string; user: SessionUser }> {
+  requireDb();
+  const email = input.email.toLowerCase().trim();
+  const name = input.name.trim();
+  if (!name) throw new CustomError("Escribe tu nombre", 400);
+  if (!EMAIL.test(email)) throw new CustomError("Correo inválido", 400);
+  if (input.password.length < 8) {
+    throw new CustomError("La contraseña debe tener al menos 8 caracteres", 400);
+  }
+
+  if (await User.exists({ email })) {
+    throw new CustomError("Ya existe una cuenta con ese correo. Inicia sesión", 409);
+  }
+
+  // accountType fijo: el registro público nunca crea administradores.
+  const user = await User.create({
+    email,
+    password: input.password,
+    name,
+    phone: (input.phone || "").trim(),
+    accountType: "customer",
+    lastLoginAt: new Date(),
+  });
+
+  await emailService.sendWelcome(user.email, user.name);
+  return { token: signToken(user), user: sanitize(user) };
+}
+
+export async function updateProfile(
+  id: string,
+  input: { name?: unknown; phone?: unknown },
+): Promise<SessionUser> {
+  requireDb();
+  const user = await User.findById(id);
+  if (!user) throw new CustomError("Usuario no encontrado", 404);
+
+  if (input.name !== undefined) {
+    const name = String(input.name).trim();
+    if (!name) throw new CustomError("Escribe tu nombre", 400);
+    user.name = name;
+  }
+  if (input.phone !== undefined) user.phone = String(input.phone).trim();
+
+  await user.save();
+  return sanitize(user);
+}
+
+/**
+ * En la base solo vive el sha256 del token: si alguien lee la colección no
+ * puede usarlo para entrar. El token en claro solo existe en el correo.
+ */
+function hashToken(token: string): string {
+  return crypto.createHash("sha256").update(token).digest("hex");
+}
+
+function newResetToken(ttlMs: number) {
+  const token = crypto.randomBytes(32).toString("hex");
+  return {
+    url: `${env.FRONTEND_URL}/restablecer?token=${token}`,
+    hash: hashToken(token),
+    expires: new Date(Date.now() + ttlMs),
+  };
+}
+
+/** Nunca revela si el correo existe: el controller responde `{ ok: true }` siempre. */
+export async function forgotPassword(emailInput: string): Promise<void> {
+  requireDb();
+  const email = emailInput.toLowerCase().trim();
+  if (!EMAIL.test(email)) return;
+
+  const user = await User.findOne({ email });
+  if (!user || !user.isActive) return;
+
+  const reset = newResetToken(RESET_TTL_MS);
+  user.resetPasswordToken = reset.hash;
+  user.resetPasswordExpires = reset.expires;
+  await user.save();
+
+  await emailService.sendPasswordReset(user.email, user.name, reset.url);
+}
+
+export async function resetPassword(
+  token: string,
+  password: string,
+): Promise<{ token: string; user: SessionUser }> {
+  requireDb();
+  if (!token) throw new CustomError("El enlace no es válido", 400);
+  if (password.length < 8) {
+    throw new CustomError("La contraseña debe tener al menos 8 caracteres", 400);
+  }
+
+  const user = await User.findOne({
+    resetPasswordToken: hashToken(token),
+    resetPasswordExpires: { $gt: new Date() },
+  }).select("+password");
+  if (!user || !user.isActive) {
+    throw new CustomError("El enlace ya no es válido o se venció. Pide uno nuevo", 400);
+  }
+
+  user.password = password;
+  user.resetPasswordToken = null;
+  user.resetPasswordExpires = null;
+  user.lastLoginAt = new Date();
+  await user.save();
+
+  return { token: signToken(user), user: sanitize(user) };
+}
+
+/**
+ * Para flujos donde el equipo actúa sobre un correo (acceso manual, sello de
+ * fidelidad). Si la persona aún no tiene cuenta se le crea una con contraseña
+ * aleatoria que nadie conoce, y `setPasswordUrl` le permite definir la suya.
+ * El correo lo envía quien llama, así decide qué más contarle al alumno.
+ */
+export async function findOrCreateUserByEmail(
+  emailInput: string,
+  name?: string,
+): Promise<{ user: any; created: boolean; setPasswordUrl: string | null }> {
+  requireDb();
+  const email = String(emailInput || "")
+    .toLowerCase()
+    .trim();
+  if (!EMAIL.test(email)) throw new CustomError("Correo inválido", 400);
+
+  const existing = await User.findOne({ email });
+  if (existing) return { user: existing, created: false, setPasswordUrl: null };
+
+  const reset = newResetToken(SET_PASSWORD_TTL_MS);
+  const user = await User.create({
+    email,
+    password: crypto.randomBytes(24).toString("base64url"),
+    name: (name || "").trim(),
+    accountType: "customer",
+    resetPasswordToken: reset.hash,
+    resetPasswordExpires: reset.expires,
+  });
+
+  return { user, created: true, setPasswordUrl: reset.url };
 }
 
 /**
