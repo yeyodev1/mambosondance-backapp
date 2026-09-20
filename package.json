@@ -2,7 +2,7 @@
   "name": "mambosondance-backapp",
   "version": "1.0.0",
   "private": true,
-  "description": "API de Mambosondance. Express 5 + Mongoose + TypeScript, desplegada en Vercel.",
+  "description": "API de MamboSon. Express 5 + Mongoose + TypeScript, desplegada en Vercel.",
   "main": "dist/index.js",
   "engines": {
     "node": ">=20"
@@ -13,7 +13,9 @@
     "compile": "tsc --watch",
     "start": "node dist/index.js",
     "seed:admin": "ts-node-dev --transpile-only src/scripts/seed-admin.ts",
-    "format": "prettier --write 'src/**/*.{ts,json,md}' 'api/**/*.ts'"
+    "format": "prettier --write 'src/**/*.{ts,json,md}' 'api/**/*.ts'",
+    "seed:student": "ts-node-dev --transpile-only src/scripts/seed-student.ts",
+    "seed:demo": "ts-node-dev --transpile-only src/scripts/seed-demo.ts"
   },
   "dependencies": {
     "axios": "^1.7.9",
