@@ -129,7 +129,13 @@ const links = {
   account: () => `${env.FRONTEND_URL}/cuenta`,
   course: (slug?: string) =>
     slug ? `${env.FRONTEND_URL}/mis-clases/${slug}` : `${env.FRONTEND_URL}/cuenta`,
+  findPurchase: () => `${env.FRONTEND_URL}/mi-compra`,
+  recover: () => `${env.FRONTEND_URL}/recuperar`,
 };
+
+function link(url: string, label?: string): string {
+  return `<a href="${esc(url)}" style="color:${BRAND.red}">${esc(label ?? url)}</a>`;
+}
 
 // ─── Correos ───────────────────────────────────────────────────────────
 
@@ -188,11 +194,26 @@ export interface OrderPaidEmail {
     tierName: string;
     startsAt?: Date | string | null;
   }[];
-  courseTitles: string[];
+  courses: { title: string; slug?: string }[];
   hasPhysical: boolean;
   shippingNote?: string;
+  /**
+   * Enlace para definir la contraseña. Con valor = la cuenta nunca inició
+   * sesión (nació con una compra sin cuenta). null = ya sabe entrar.
+   */
+  setPasswordUrl: string | null;
+  /** Reenvío pedido desde "Encontrar mi compra": cambia el saludo, no el contenido. */
+  isResend?: boolean;
 }
 
+function h2(title: string): string {
+  return `<h2 style="margin:16px 0 10px;font-size:17px">${esc(title)}</h2>`;
+}
+
+/**
+ * Se compra sin cuenta, así que este correo es la única puerta de entrada:
+ * tiene que decir cómo llegar a cada cosa comprada sin dar nada por sabido.
+ */
 export async function sendOrderPaid(to: string, data: OrderPaidEmail): Promise<boolean> {
   const rows = data.items
     .map(
@@ -218,9 +239,45 @@ export async function sendOrderPaid(to: string, data: OrderPaidEmail): Promise<b
 
   const parts = [
     greeting(data.name),
-    p(`Recibimos tu pago. Este es el resumen de tu pedido <strong>${esc(data.number)}</strong>:`),
+    p(
+      data.isResend
+        ? `Aquí tienes de nuevo la confirmación de tu pedido <strong>${esc(data.number)}</strong>, con todo lo que necesitas para usarlo:`
+        : `Recibimos tu pago. Este es el resumen de tu pedido <strong>${esc(data.number)}</strong>:`,
+    ),
     table,
   ];
+
+  if (data.courses.length) {
+    const titles = data.courses.map((course) => `<strong>${esc(course.title)}</strong>`).join(", ");
+    parts.push(h2("Cómo entrar a tus clases"));
+
+    if (data.setPasswordUrl) {
+      parts.push(
+        p(
+          `Ya tienes acceso a ${titles}. Te creamos una cuenta con este correo (<strong>${esc(to)}</strong>): solo falta que elijas tu contraseña y entras directo a bailar.`,
+        ),
+        button("Crear mi contraseña y entrar", data.setPasswordUrl),
+        small(
+          `El enlace funciona durante 7 días. Si se vence, pide uno nuevo en ${link(links.findPurchase())}.`,
+        ),
+      );
+    } else {
+      parts.push(
+        p(
+          `Ya puedes empezar con ${titles}. Entra con la cuenta de este correo (<strong>${esc(to)}</strong>) y mira tus clases las veces que quieras, a tu ritmo.`,
+        ),
+        button("Entrar a mis clases", links.course(data.courses[0].slug)),
+      );
+      if (data.courses.length > 1) {
+        parts.push(
+          small(
+            `Tus clases: ${data.courses.map((course) => link(links.course(course.slug), course.title)).join(" · ")}`,
+          ),
+        );
+      }
+      parts.push(small(`¿Olvidaste tu contraseña? ${link(links.recover())}`));
+    }
+  }
 
   if (data.tickets.length) {
     const codes = data.tickets
@@ -234,24 +291,17 @@ export async function sendOrderPaid(to: string, data: OrderPaidEmail): Promise<b
       )
       .join("");
     parts.push(
-      `<h2 style="margin:8px 0 10px;font-size:17px">Tus entradas</h2>`,
-      p("Muestra el código en la puerta. Cada código sirve para una persona y un solo ingreso."),
-      `<table width="100%" cellpadding="0" cellspacing="0" role="presentation">${codes}</table>`,
-    );
-  }
-
-  if (data.courseTitles.length) {
-    parts.push(
-      `<h2 style="margin:16px 0 10px;font-size:17px">Tus clases</h2>`,
+      h2("Tus entradas"),
       p(
-        `Ya puedes empezar con ${data.courseTitles.map((title) => `<strong>${esc(title)}</strong>`).join(", ")}. Te espera en tu cuenta, para verlo las veces que quieras.`,
+        "Tus códigos van aquí mismo: guarda este correo. No necesitas cuenta ni imprimir nada, solo muestra el código en la puerta desde tu celular. Cada código sirve para una persona y un solo ingreso.",
       ),
+      `<table width="100%" cellpadding="0" cellspacing="0" role="presentation">${codes}</table>`,
     );
   }
 
   if (data.hasPhysical) {
     parts.push(
-      `<h2 style="margin:16px 0 10px;font-size:17px">Tu envío</h2>`,
+      h2("Tu envío"),
       p(
         esc(
           data.shippingNote ||
@@ -261,7 +311,20 @@ export async function sendOrderPaid(to: string, data: OrderPaidEmail): Promise<b
     );
   }
 
-  parts.push(button("Ver mi cuenta", links.account()), small("Gracias por bailar con nosotros."));
+  if (!data.courses.length) {
+    parts.push(
+      data.setPasswordUrl
+        ? small(
+            `Te creamos una cuenta con este correo para ver tus pedidos y tu tarjeta MamboSon. Si quieres usarla, ${link(data.setPasswordUrl, "crea tu contraseña aquí")} (el enlace funciona durante 7 días).`,
+          )
+        : button("Ver mi cuenta", links.account()),
+    );
+  }
+
+  parts.push(
+    p("Gracias por bailar con nosotros."),
+    small(`¿No encuentras este correo más adelante? Recupéralo en ${link(links.findPurchase())}`),
+  );
 
   return sendEmail(
     to,
