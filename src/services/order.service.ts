@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import { isValidObjectId } from "mongoose";
 import { CustomError } from "../errors/customError.error";
+import { Access } from "../models/access.model";
 import { nextSequence } from "../models/counter.model";
 import { Event } from "../models/event.model";
 import {
@@ -12,8 +13,10 @@ import {
   Order,
 } from "../models/order.model";
 import { Product } from "../models/product.model";
+import { ResendLog } from "../models/resendLog.model";
 import { User } from "../models/user.model";
 import * as accessService from "./access.service";
+import * as authService from "./auth.service";
 import * as emailService from "./email.service";
 import * as loyaltyService from "./loyalty.service";
 import * as payphoneService from "./payphone.service";
@@ -23,6 +26,10 @@ import * as ticketService from "./ticket.service";
 const MAX_LINES = 20;
 const MAX_PHYSICAL_QUANTITY = 20;
 const MAX_TICKET_QUANTITY = 10;
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+const RESEND_WINDOW_MS = 15 * 60 * 1000;
+const RESEND_MAX = 3;
+const RESEND_ORDERS = 5;
 
 interface Requester {
   userId: string;
@@ -55,13 +62,18 @@ function parseQuantity(value: unknown, max: number, label: string): number {
   return quantity;
 }
 
-function parseBuyer(input: any) {
+/** `accountEmail` = correo de la sesión: manda sobre lo que venga en el body. */
+function parseBuyer(input: any, accountEmail: string | null) {
   const buyer = {
     name: text(input?.name, 120),
+    email: accountEmail ?? text(input?.email, 160).toLowerCase(),
     phone: text(input?.phone, 30),
     documentId: text(input?.documentId, 20).replace(/\s+/g, ""),
   };
   if (!buyer.name) throw new CustomError("Escribe el nombre de quien compra", 400);
+  if (!EMAIL.test(buyer.email)) {
+    throw new CustomError("Escribe un correo válido: ahí te llegan tus accesos", 400);
+  }
   if (buyer.phone.replace(/\D/g, "").length < 7) {
     throw new CustomError("Escribe un número de teléfono válido", 400);
   }
@@ -121,8 +133,15 @@ function tierIsOnSale(tier: any, now: Date): boolean {
 /**
  * Arma los ítems desde la base: título, precio e imagen salen del catálogo y
  * cualquier precio que mande el navegador se ignora.
+ *
+ * `userId` null = compra sin sesión con un correo que aún no tiene cuenta: no
+ * hay accesos previos que revisar. `guest` solo cambia el mensaje del 409.
  */
-async function buildItems(userId: string, rawItems: unknown): Promise<IOrderItem[]> {
+async function buildItems(
+  userId: string | null,
+  rawItems: unknown,
+  guest: boolean,
+): Promise<IOrderItem[]> {
   if (!Array.isArray(rawItems) || !rawItems.length) {
     throw new CustomError("Tu carrito está vacío", 400);
   }
@@ -151,8 +170,13 @@ async function buildItems(userId: string, rawItems: unknown): Promise<IOrderItem
         // Un curso se compra una sola vez: repetirlo en el carrito no lo duplica.
         if (courses.has(productId)) continue;
         courses.add(productId);
-        if (await accessService.hasActiveAccess(userId, product._id)) {
-          throw new CustomError(`Ya tienes acceso vigente a ${product.title}`, 409);
+        if (userId && (await accessService.hasActiveAccess(userId, product._id))) {
+          throw new CustomError(
+            guest
+              ? `Este correo ya tiene acceso a ${product.title}. Inicia sesión para verlo.`
+              : `Ya tienes acceso vigente a ${product.title}`,
+            409,
+          );
         }
         items.push({
           kind: "product",
@@ -258,16 +282,47 @@ async function buildItems(userId: string, rawItems: unknown): Promise<IOrderItem
   return items;
 }
 
-export async function createOrder(userId: string, body: any) {
+/**
+ * Una cuenta nacida de una compra sin sesión que se abandonó sigue siendo "de
+ * quien compra" en el siguiente intento (tarjeta rechazada, pestaña cerrada):
+ * nunca entró nadie, no tiene nada pagado ni ningún acceso. Fuera de ese caso
+ * una cuenta existente jamás entrega sesión por comprar con su correo.
+ */
+async function isUnclaimedGuestAccount(user: any): Promise<boolean> {
+  if (user.lastLoginAt || user.accountType !== "customer") return false;
+  const [bornFromCheckout, hasPaid, hasAccess] = await Promise.all([
+    Order.exists({ user: user._id, accountCreated: true }),
+    Order.exists({ user: user._id, status: "paid" }),
+    Access.exists({ user: user._id }),
+  ]);
+  return Boolean(bornFromCheckout) && !hasPaid && !hasAccess;
+}
+
+/** `sessionUserId` undefined = compra sin cuenta: la orden se asocia al correo de `buyer`. */
+export async function createOrder(sessionUserId: string | undefined, body: any) {
   if (!payphoneService.isPayphoneConfigured()) {
     throw new CustomError("Los pagos en línea aún no están habilitados", 503);
   }
 
-  const user: any = await User.findById(userId);
-  if (!user || !user.isActive) throw new CustomError("No autorizado", 401);
+  const guest = !sessionUserId;
+  let user: any = null;
+  if (sessionUserId) {
+    user = await User.findById(sessionUserId);
+    if (!user || !user.isActive) throw new CustomError("No autorizado", 401);
+  }
 
-  const buyer = parseBuyer(body?.buyer);
-  const items = await buildItems(userId, body?.items);
+  const buyer = parseBuyer(body?.buyer, user ? user.email : null);
+  if (guest) {
+    user = await User.findOne({ email: buyer.email });
+    if (user && !user.isActive) {
+      throw new CustomError(
+        "No podemos procesar compras con este correo. Escríbenos y te ayudamos",
+        403,
+      );
+    }
+  }
+
+  const items = await buildItems(user ? String(user._id) : null, body?.items, guest);
 
   const hasPhysical = items.some((item) => item.productType === "physical");
   const shipping = hasPhysical ? parseShipping(body?.shipping) : null;
@@ -277,6 +332,20 @@ export async function createOrder(userId: string, body: any) {
   const totalCents = subtotalCents - discountCents;
   if (totalCents <= 0) {
     throw new CustomError("El total del pedido debe ser mayor a cero", 400);
+  }
+
+  // La cuenta se crea al final, con el carrito ya validado: un 400 no deja
+  // cuentas huérfanas. Va en silencio, sin correo de "cuenta creada": todavía
+  // no ha pagado, y todo lo que necesita llega en el correo de compra.
+  let accountCreated = false;
+  if (guest) {
+    if (user) {
+      accountCreated = await isUnclaimedGuestAccount(user);
+    } else {
+      const result = await authService.findOrCreateUserByEmail(buyer.email, buyer.name);
+      user = result.user;
+      accountCreated = result.created;
+    }
   }
 
   const seq = await nextSequence("order");
@@ -299,6 +368,7 @@ export async function createOrder(userId: string, body: any) {
     shipping,
     buyer,
     clientTransactionId,
+    accountCreated,
   });
 
   const { token, storeId } = payphoneService.boxCredentials();
@@ -323,6 +393,91 @@ export async function createOrder(userId: string, body: any) {
   };
 }
 
+// ─── Correo de compra ──────────────────────────────────────────────────
+
+function hasPhysicalItems(order: any): boolean {
+  return (order.items as IOrderItem[]).some((item) => item.productType === "physical");
+}
+
+/** Cursos de la orden con su slug actual. El título es el de la compra. */
+async function orderCourses(order: any, skip?: Set<string>) {
+  const items = (order.items as IOrderItem[]).filter(
+    (item) => item.productType === "course" && item.product && !skip?.has(String(item.product)),
+  );
+  if (!items.length) return [];
+  const products: any[] = await Product.find({
+    _id: { $in: items.map((item) => item.product) },
+  }).select("slug");
+  const slugs = new Map(products.map((product) => [String(product._id), product.slug]));
+  return items.map((item) => ({
+    title: item.title,
+    slug: String(slugs.get(String(item.product)) ?? ""),
+  }));
+}
+
+/**
+ * Enlace para definir contraseña si la cuenta nunca inició sesión; null si ya
+ * sabe entrar. Cada enlace nuevo invalida el anterior: se pide uno por envío,
+ * no uno por correo.
+ */
+async function setPasswordUrlFor(userId: unknown): Promise<string | null> {
+  const user: any = await User.findById(userId).select("lastLoginAt isActive");
+  if (!user || !user.isActive || user.lastLoginAt) return null;
+  return authService.issueSetPasswordUrl(user._id);
+}
+
+/**
+ * El mismo correo sirve para la compra recién pagada y para "Encontrar mi
+ * compra". Las entradas se leen de la base para que un reenvío traiga los
+ * mismos códigos y deje fuera las anuladas.
+ */
+async function sendOrderEmail(
+  order: any,
+  options: {
+    settings?: any;
+    failedCourses?: Set<string>;
+    // undefined = se calcula acá; string o null = ya lo resolvió quien llama.
+    setPasswordUrl?: string | null;
+    isResend?: boolean;
+  } = {},
+): Promise<boolean> {
+  const settings = options.settings ?? (await getSettings().catch(() => null));
+  const [tickets, courses, account] = await Promise.all([
+    ticketService.listByOrder(order._id),
+    orderCourses(order, options.failedCourses),
+    User.findById(order.user).select("name"),
+  ]);
+  const setPasswordUrl =
+    options.setPasswordUrl === undefined
+      ? await setPasswordUrlFor(order.user)
+      : options.setPasswordUrl;
+
+  return emailService.sendOrderPaid(order.email, {
+    name: order.buyer?.name || (account as any)?.name,
+    number: order.number,
+    items: (order.items as IOrderItem[]).map((item) => ({
+      title: item.title,
+      quantity: item.quantity,
+      unitCents: item.unitCents,
+      detail: Object.entries(item.selectedOptions ?? {})
+        .map(([name, value]) => `${name}: ${value}`)
+        .join(" · "),
+    })),
+    totalCents: order.totalCents,
+    tickets: tickets.map((ticket: any) => ({
+      code: ticket.code,
+      eventTitle: ticket.event?.title ?? "Evento",
+      tierName: ticket.tierName,
+      startsAt: ticket.event?.startsAt ?? null,
+    })),
+    courses,
+    hasPhysical: hasPhysicalItems(order),
+    shippingNote: settings?.shippingNote,
+    setPasswordUrl,
+    isResend: options.isResend,
+  });
+}
+
 // ─── Confirmar ─────────────────────────────────────────────────────────
 
 /**
@@ -335,8 +490,8 @@ async function fulfillOrder(order: any): Promise<void> {
   const settings: any = await getSettings().catch(() => null);
   const paidAt: Date = order.paidAt ?? new Date();
 
-  const courseTitles: string[] = [];
-  const ticketsForEmail: emailService.OrderPaidEmail["tickets"] = [];
+  // Cursos cuyo acceso no se pudo otorgar: el correo no debe prometerlos.
+  const failedCourses = new Set<string>();
   let stamps = 0;
 
   for (const item of order.items as IOrderItem[]) {
@@ -351,7 +506,6 @@ async function fulfillOrder(order: any): Promise<void> {
           orderId: order._id,
           note: `Compra ${order.number}`,
         });
-        courseTitles.push(item.title);
         stamps += 1;
       }
 
@@ -366,7 +520,7 @@ async function fulfillOrder(order: any): Promise<void> {
       if (item.kind === "ticket" && item.event && item.tierId) {
         const event: any = await Event.findById(item.event);
         const tier = event?.tiers?.id(item.tierId);
-        const tickets = await ticketService.issueTickets({
+        await ticketService.issueTickets({
           orderId: order._id,
           userId: order.user,
           eventId: item.event,
@@ -380,42 +534,18 @@ async function fulfillOrder(order: any): Promise<void> {
           { _id: item.event, "tiers._id": item.tierId },
           { $inc: { "tiers.$.sold": item.quantity } },
         );
-        for (const ticket of tickets) {
-          ticketsForEmail.push({
-            code: ticket.code,
-            eventTitle: event?.title ?? item.title,
-            tierName: ticket.tierName,
-            startsAt: event?.startsAt ?? null,
-          });
-        }
         // Un taller cuenta para la tarjeta igual que un curso; una fiesta no.
         if (event?.category === "taller") stamps += 1;
       }
     } catch (error) {
       console.error(`${tag} falló la entrega de "${item.title}":`, error);
+      if (item.productType === "course" && item.product) failedCourses.add(String(item.product));
     }
   }
 
   // El correo de compra va antes que el de sello para que lleguen en orden lógico.
   try {
-    const buyer: any = await User.findById(order.user).select("name");
-    await emailService.sendOrderPaid(order.email, {
-      name: order.buyer?.name || buyer?.name,
-      number: order.number,
-      items: (order.items as IOrderItem[]).map((item) => ({
-        title: item.title,
-        quantity: item.quantity,
-        unitCents: item.unitCents,
-        detail: Object.entries(item.selectedOptions ?? {})
-          .map(([name, value]) => `${name}: ${value}`)
-          .join(" · "),
-      })),
-      totalCents: order.totalCents,
-      tickets: ticketsForEmail,
-      courseTitles,
-      hasPhysical: order.items.some((item: IOrderItem) => item.productType === "physical"),
-      shippingNote: settings?.shippingNote,
-    });
+    await sendOrderEmail(order, { settings, failedCourses });
   } catch (error) {
     console.error(`${tag} falló el correo de compra:`, error);
   }
@@ -436,28 +566,79 @@ async function fulfillOrder(order: any): Promise<void> {
 
 type ConfirmStatus = "paid" | "canceled" | "failed";
 
+export interface OrderConfirmation {
+  order: Record<string, unknown>;
+  status: ConfirmStatus;
+  tickets: ReturnType<typeof ticketService.serializeTicket>[];
+  courses: { slug: string; title: string }[];
+  hasPhysical: boolean;
+  /** A dónde se enviaron los accesos. */
+  email: string;
+  session: { token: string; user: authService.SessionUser } | null;
+}
+
 /**
- * Idempotente: la página de respuesta se recarga más de lo que uno cree, y una
- * orden ya pagada responde lo mismo sin duplicar accesos, entradas ni correos.
+ * Cierra el caso de quien deja una orden pendiente con el correo de otra
+ * persona y la paga después de que esa persona compró: la sesión solo se
+ * entrega si en la cuenta no había nada antes de esta orden (ni compras pagadas
+ * ni accesos dados por el equipo). Mira hacia atrás y no hacia adelante para
+ * que recargar la página siga devolviendo la sesión aunque luego compre más.
  */
-export async function confirmOrder(
-  requester: Requester,
-  input: { id: unknown; clientTransactionId: unknown },
-): Promise<{ order: Record<string, unknown>; status: ConfirmStatus }> {
-  const clientTransactionId = text(input.clientTransactionId, 60);
-  const payphoneId = text(input.id, 30);
-  if (!clientTransactionId || !/^\d+$/.test(payphoneId)) {
-    throw new CustomError("Faltan los datos de la transacción", 400);
-  }
+async function accountHoldsOnlyThisOrder(order: any): Promise<boolean> {
+  const [earlierPaid, grantedByTeam] = await Promise.all([
+    Order.exists({
+      user: order.user,
+      status: "paid",
+      _id: { $ne: order._id },
+      paidAt: { $lte: order.paidAt ?? new Date() },
+    }),
+    Access.exists({ user: order.user, source: { $ne: "purchase" } }),
+  ]);
+  return !earlierPaid && !grantedByTeam;
+}
 
-  const order = await Order.findOne({ clientTransactionId });
-  if (!order) throw new CustomError("Pedido no encontrado", 404);
-  if (String(order.user) !== requester.userId && requester.accountType !== "admin") {
-    throw new CustomError("Este pedido no es tuyo", 403);
-  }
+/**
+ * Respuesta de la página de pago. Se arma siempre desde la base, así una
+ * recarga devuelve exactamente lo mismo que la primera vez.
+ */
+async function buildConfirmation(order: any, status: ConfirmStatus): Promise<OrderConfirmation> {
+  const paid = status === "paid";
+  const [tickets, courses] = paid
+    ? await Promise.all([ticketService.listByOrder(order._id), orderCourses(order)])
+    : [[], []];
 
-  if (order.status === "paid") return { order: serializeOrder(order), status: "paid" };
-  if (order.status === "canceled") return { order: serializeOrder(order), status: "canceled" };
+  // Solo la compra que creó la cuenta entrega sesión: comprar con el correo de
+  // una cuenta ajena nunca debe abrirla. `sessionForNewAccount` deja de
+  // entregarla en cuanto esa cuenta inicia sesión por su lado.
+  const session =
+    paid && order.accountCreated && (await accountHoldsOnlyThisOrder(order))
+      ? await authService.sessionForNewAccount(order.user)
+      : null;
+
+  return {
+    order: serializeOrder(order),
+    status,
+    tickets: tickets.map(ticketService.serializeTicket),
+    // Sin slug (producto borrado) no hay a dónde enlazar desde la página.
+    courses: courses.filter((course) => course.slug),
+    hasPhysical: hasPhysicalItems(order),
+    email: order.email,
+    session,
+  };
+}
+
+/**
+ * Cobra la orden contra Payphone. Idempotente: la página de respuesta se
+ * recarga más de lo que uno cree, y una orden ya pagada responde lo mismo sin
+ * duplicar accesos, entradas ni correos.
+ */
+async function settleOrder(
+  order: any,
+  payphoneId: string,
+  clientTransactionId: string,
+): Promise<{ order: any; status: ConfirmStatus }> {
+  if (order.status === "paid") return { order, status: "paid" };
+  if (order.status === "canceled") return { order, status: "canceled" };
 
   const data = await payphoneService.confirmTransaction(payphoneId, clientTransactionId);
   const record = { payphoneId, payphoneResponse: data };
@@ -479,10 +660,9 @@ export async function confirmOrder(
         { $set: { ...record, status: "failed" } },
         { new: true },
       );
-      return { order: serializeOrder(failed ?? order), status: "failed" };
+      return { order: failed ?? order, status: "failed" };
     }
 
-    const hasPhysical = order.items.some((item) => item.productType === "physical");
     const paid = await Order.findOneAndUpdate(
       open,
       {
@@ -490,7 +670,7 @@ export async function confirmOrder(
           ...record,
           status: "paid",
           paidAt: new Date(),
-          fulfillment: hasPhysical ? "pending" : "none",
+          fulfillment: hasPhysicalItems(order) ? "pending" : "none",
         },
       },
       { new: true },
@@ -499,12 +679,12 @@ export async function confirmOrder(
     // null = otra petición ganó la carrera y ya está entregando; no se repite.
     if (paid) {
       await fulfillOrder(paid);
-      return { order: serializeOrder(paid), status: "paid" };
+      return { order: paid, status: "paid" };
     }
     const current = await Order.findById(order._id);
     return {
-      order: serializeOrder(current ?? order),
-      status: (current?.status === "paid" ? "paid" : "failed") as ConfirmStatus,
+      order: current ?? order,
+      status: current?.status === "paid" ? "paid" : "failed",
     };
   }
 
@@ -515,13 +695,92 @@ export async function confirmOrder(
     { $set: { ...record, status } },
     { new: true },
   );
-  if (updated) return { order: serializeOrder(updated), status };
+  if (updated) return { order: updated, status };
 
   const current = await Order.findById(order._id);
   return {
-    order: serializeOrder(current ?? order),
+    order: current ?? order,
     status: current?.status === "paid" ? "paid" : status,
   };
+}
+
+/**
+ * Se compra sin cuenta, así que acá no se exige sesión: `clientTransactionId`
+ * es aleatorio e inadivinable y hace de credencial de quien compró. Por eso la
+ * orden se busca SOLO por él, nunca por un id que se pueda enumerar.
+ */
+export async function confirmOrder(
+  requester: Requester | undefined,
+  input: { id: unknown; clientTransactionId: unknown },
+): Promise<OrderConfirmation> {
+  const clientTransactionId = text(input.clientTransactionId, 60);
+  const payphoneId = text(input.id, 30);
+  if (!clientTransactionId || !/^\d+$/.test(payphoneId)) {
+    throw new CustomError("Faltan los datos de la transacción", 400);
+  }
+
+  const order = await Order.findOne({ clientTransactionId });
+  if (!order) throw new CustomError("Pedido no encontrado", 404);
+  if (requester && String(order.user) !== requester.userId && requester.accountType !== "admin") {
+    throw new CustomError("Este pedido no es tuyo", 403);
+  }
+
+  const settled = await settleOrder(order, payphoneId, clientTransactionId);
+  return buildConfirmation(settled.order, settled.status);
+}
+
+// ─── Encontrar mi compra ───────────────────────────────────────────────
+
+/**
+ * true si este correo todavía puede pedir un reenvío. Se registra primero y se
+ * cuenta después: con dos peticiones a la vez, contar antes dejaría pasar a
+ * ambas. El intento rechazado se borra para que insistir no alargue el bloqueo.
+ */
+async function takeResendSlot(email: string): Promise<boolean> {
+  const entry = await ResendLog.create({ email });
+  const recent = await ResendLog.countDocuments({
+    email,
+    createdAt: { $gte: new Date(Date.now() - RESEND_WINDOW_MS) },
+  });
+  if (recent <= RESEND_MAX) return true;
+  await ResendLog.deleteOne({ _id: entry._id });
+  return false;
+}
+
+/**
+ * Reenvía la confirmación de las órdenes pagadas de un correo. No devuelve ni
+ * lanza nada que delate si el correo existe: el controller responde
+ * `{ ok: true }` pase lo que pase acá.
+ */
+export async function findPurchase(input: { email?: unknown; number?: unknown }): Promise<void> {
+  const email = text(input?.email, 160).toLowerCase();
+  if (!EMAIL.test(email)) return;
+
+  // Por usuario y no por `Order.email`: ese campo no tiene índice y `user` sí.
+  const user: any = await User.findOne({ email }).select("_id isActive");
+  if (!user || !user.isActive) return;
+
+  const filter: Record<string, unknown> = { user: user._id, status: "paid" };
+  const number = text(input?.number, 20).toUpperCase();
+  if (number) filter.number = number;
+
+  const orders = await Order.find(filter).sort({ paidAt: -1 }).limit(RESEND_ORDERS);
+  if (!orders.length) return;
+  if (!(await takeResendSlot(email))) return;
+
+  // Un solo enlace para todos los correos de este envío: cada enlace nuevo
+  // invalida el anterior y solo serviría el del último correo.
+  const setPasswordUrl = await setPasswordUrlFor(user._id);
+  const settings = await getSettings().catch(() => null);
+
+  // De la más antigua a la más reciente, para que la última quede arriba en la bandeja.
+  for (const order of orders.reverse()) {
+    try {
+      await sendOrderEmail(order, { settings, setPasswordUrl, isResend: true });
+    } catch (error) {
+      console.error(`[order ${order.number}] falló el reenvío de la compra:`, error);
+    }
+  }
 }
 
 // ─── Consultas ─────────────────────────────────────────────────────────
