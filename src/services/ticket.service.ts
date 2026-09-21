@@ -82,6 +82,13 @@ export async function listMine(userId: Id) {
   return tickets.map(serializeTicket);
 }
 
+/** Entradas vigentes de una orden, con `event` poblado: para la confirmación y su correo. */
+export async function listByOrder(orderId: Id) {
+  return Ticket.find({ order: orderId, status: { $ne: "void" } })
+    .populate(EVENT_POPULATE)
+    .sort({ createdAt: 1 });
+}
+
 export async function listTickets(query: {
   event?: string;
   q?: string;
