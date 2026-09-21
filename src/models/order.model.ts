@@ -32,6 +32,8 @@ export interface IShipping {
 
 export interface IBuyer {
   name: string;
+  // Correo al que llegan los accesos. Con sesión es el de la cuenta.
+  email: string;
   phone: string;
   documentId: string;
 }
@@ -52,6 +54,9 @@ export interface IOrder {
   payphoneId: string | null;
   payphoneResponse: unknown;
   paidAt: Date | null;
+  // La cuenta nació con esta compra sin sesión: al confirmar el pago se le
+  // puede entregar sesión a quien compró, mientras nunca haya entrado por otra vía.
+  accountCreated: boolean;
   createdAt?: Date;
   updatedAt?: Date;
 }
@@ -88,6 +93,7 @@ const shippingSchema = new Schema<IShipping>(
 const buyerSchema = new Schema<IBuyer>(
   {
     name: { type: String, default: "" },
+    email: { type: String, default: "", lowercase: true, trim: true },
     phone: { type: String, default: "" },
     documentId: { type: String, default: "" },
   },
@@ -113,6 +119,7 @@ const orderSchema = new Schema<IOrder>(
     // para que no viaje al navegador en ningún listado.
     payphoneResponse: { type: Schema.Types.Mixed, default: null, select: false },
     paidAt: { type: Date, default: null },
+    accountCreated: { type: Boolean, default: false },
   },
   { timestamps: true },
 );
