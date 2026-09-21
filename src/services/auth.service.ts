@@ -250,17 +250,61 @@ export async function findOrCreateUserByEmail(
   if (existing) return { user: existing, created: false, setPasswordUrl: null };
 
   const reset = newResetToken(SET_PASSWORD_TTL_MS);
-  const user = await User.create({
-    email,
-    password: crypto.randomBytes(24).toString("base64url"),
-    name: (name || "").trim(),
-    accountType: "customer",
-    resetPasswordToken: reset.hash,
-    resetPasswordExpires: reset.expires,
-  });
+  let user: any;
+  try {
+    user = await User.create({
+      email,
+      password: crypto.randomBytes(24).toString("base64url"),
+      name: (name || "").trim(),
+      accountType: "customer",
+      resetPasswordToken: reset.hash,
+      resetPasswordExpires: reset.expires,
+    });
+  } catch (error: any) {
+    // Doble clic en "pagar": la otra petición creó la cuenta un instante antes.
+    if (error?.code !== 11000) throw error;
+    const winner = await User.findOne({ email });
+    if (!winner) throw error;
+    return { user: winner, created: false, setPasswordUrl: null };
+  }
 
   // `nuevo=1` hace que el frontapp titule la pantalla "Define tu contraseña".
   return { user, created: true, setPasswordUrl: `${reset.url}&nuevo=1` };
+}
+
+/**
+ * Enlace nuevo de 7 días para que una cuenta creada en silencio (compra sin
+ * sesión) defina su contraseña. Cada llamada invalida el enlace anterior, así
+ * que quien manda varios correos seguidos debe pedirlo una sola vez.
+ */
+export async function issueSetPasswordUrl(userId: unknown): Promise<string> {
+  requireDb();
+  const reset = newResetToken(SET_PASSWORD_TTL_MS);
+  // updateOne y no save(): no hay por qué pasar por el hook de la contraseña.
+  const result = await User.updateOne(
+    { _id: userId },
+    { $set: { resetPasswordToken: reset.hash, resetPasswordExpires: reset.expires } },
+  );
+  if (!result.matchedCount) throw new CustomError("Usuario no encontrado", 404);
+  return `${reset.url}&nuevo=1`;
+}
+
+/**
+ * Sesión para quien acaba de pagar una compra sin cuenta. Solo existe mientras
+ * la cuenta nunca haya entrado por su lado: en cuanto define su contraseña o
+ * inicia sesión, `lastLoginAt` deja de ser null y esto devuelve null.
+ * A propósito NO marca `lastLoginAt`: la página de respuesta se recarga y tiene
+ * que seguir recibiendo la sesión.
+ */
+export async function sessionForNewAccount(
+  userId: unknown,
+): Promise<{ token: string; user: SessionUser } | null> {
+  requireDb();
+  const user = await User.findById(userId);
+  if (!user || !user.isActive || user.lastLoginAt) return null;
+  // Una cuenta de administración jamás se entrega por esta vía.
+  if (user.accountType !== "customer") return null;
+  return { token: signToken(user), user: sanitize(user) };
 }
 
 /**
