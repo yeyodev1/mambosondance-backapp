@@ -1,19 +1,19 @@
 {
-  "_nota": "Contenido de DEMOSTRACIÓN para revisar la plataforma. Precios, descripciones y temarios son provisionales: los define el cliente desde el panel. El evento Salsa Social Night sí sale de los gráficos entregados por el cliente. Las imágenes viven en el frontapp (/img) hasta que Cloudinary esté configurado.",
+  "_nota": "Contenido de DEMOSTRACIÓN para revisar la plataforma. El pensum y los precios de Salsa desde cero ($20) e intermedio ($30) son los que dictó el cliente el 2026-10-02; el avanzado sigue provisional. Las imágenes viven en el frontapp (/img) hasta que Cloudinary esté configurado.",
   "courses": [
     {
       "slug": "salsa-desde-cero",
       "title": "Salsa desde cero",
       "level": "principiante",
       "style": "Salsa",
-      "summary": "Cinco sesiones para dar tus primeros pasos sin prisa, desde casa.",
-      "description": "Un paquete de cinco clases grabadas pensado para quien nunca ha bailado o quiere volver a empezar con buena base.\n\nCada sesión se puede repetir las veces que necesites: mantén el ritmo, siente cada momento, vive cada paso.",
-      "priceCents": 2500,
+      "summary": "Seis clases y un video de bienvenida para dar tus primeros pasos sin prisa, desde casa.",
+      "description": "Un paquete de seis clases grabadas, de 20 a 30 minutos cada una, pensado para quien nunca ha bailado o quiere volver a empezar con buena base. Abre con un video de bienvenida que puedes ver gratis.\n\nCada clase se puede repetir las veces que necesites: mantén el ritmo, siente cada momento, vive cada paso.",
+      "priceCents": 2000,
       "image": "/img/foto-6.jpg",
       "isFeatured": true,
       "modules": [
-        { "title": "Primeros pasos", "lessons": ["Bienvenida y postura", "Tiempo y conteo", "Paso básico"] },
-        { "title": "Soltar el cuerpo", "lessons": ["Giro simple", "Tu primera secuencia"] }
+        { "title": "Primeros pasos", "lessons": ["Bienvenida", "Pasos básicos: tiempo, conteo y giros", "Shines (pasos libres)", "Pasos básicos en pareja"] },
+        { "title": "Ahora en pareja", "lessons": ["Secuencia en pareja, parte 1", "Secuencia en pareja, parte 2", "Secuencia en pareja, parte 3"] }
       ]
     },
     {
@@ -21,14 +21,14 @@
       "title": "Salsa nivel intermedio",
       "level": "intermedio",
       "style": "Salsa",
-      "summary": "Cinco sesiones para ganar fluidez, figuras y conexión en pareja.",
-      "description": "Para quienes ya dominan el básico y quieren sumar figuras, giros y musicalidad.\n\nCinco clases grabadas para practicar a tu ritmo.",
+      "summary": "Seis clases y un video de bienvenida para sumar secuencias, pasos libres y salsa casino.",
+      "description": "Para quienes ya dominan el básico y quieren sumar secuencias, pasos libres y los fundamentos de la salsa casino. Seis clases grabadas, de 20 a 30 minutos cada una, y un video de bienvenida que puedes ver gratis.\n\nRepite cada clase las veces que quieras, a tu ritmo.",
       "priceCents": 3000,
       "image": "/img/foto-7.jpg",
       "isFeatured": true,
       "modules": [
-        { "title": "Figuras y giros", "lessons": ["Cross body lead", "Giros encadenados", "Cambios de dirección"] },
-        { "title": "Musicalidad", "lessons": ["Escuchar la clave", "Secuencia completa"] }
+        { "title": "Secuencias y pasos libres", "lessons": ["Bienvenida", "Secuencia semicomplicada, parte 1", "Pasos libres", "Secuencia semicomplicada, parte 2"] },
+        { "title": "Salsa casino inicial", "lessons": ["Bases y fundamentos", "Pasos libres: rumba", "Pasos libres combinando figuras"] }
       ]
     },
     {
@@ -42,7 +42,7 @@
       "image": "/img/foto-1.jpg",
       "isFeatured": false,
       "modules": [
-        { "title": "Técnica", "lessons": ["Giros múltiples", "Pasos libres de mambo", "Bailar on2"] },
+        { "title": "Técnica", "lessons": ["Bienvenida", "Giros múltiples", "Pasos libres de mambo", "Bailar on2"] },
         { "title": "Estilo", "lessons": ["Styling y brazos", "Coreografía final"] }
       ]
     }
