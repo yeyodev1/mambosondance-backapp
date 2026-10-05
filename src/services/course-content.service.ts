@@ -68,11 +68,24 @@ export function serializeLessonAdmin(lesson: any): Record<string, unknown> {
 export async function recalcCourseStats(productId: string | Types.ObjectId): Promise<void> {
   const [stats] = await Lesson.aggregate([
     { $match: { product: new Types.ObjectId(String(productId)), isPublished: true } },
-    { $group: { _id: null, count: { $sum: 1 }, seconds: { $sum: "$durationSeconds" } } },
+    {
+      $group: {
+        _id: null,
+        count: { $sum: 1 },
+        previews: { $sum: { $cond: ["$isFreePreview", 1, 0] } },
+        seconds: { $sum: "$durationSeconds" },
+      },
+    },
   ]);
   await Product.updateOne(
     { _id: productId },
-    { $set: { lessonsCount: stats?.count ?? 0, durationSeconds: stats?.seconds ?? 0 } },
+    {
+      $set: {
+        lessonsCount: stats?.count ?? 0,
+        previewLessonsCount: stats?.previews ?? 0,
+        durationSeconds: stats?.seconds ?? 0,
+      },
+    },
   );
 }
 
