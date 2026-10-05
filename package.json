@@ -15,7 +15,8 @@
     "seed:admin": "ts-node-dev --transpile-only src/scripts/seed-admin.ts",
     "format": "prettier --write 'src/**/*.{ts,json,md}' 'api/**/*.ts'",
     "seed:student": "ts-node-dev --transpile-only src/scripts/seed-student.ts",
-    "seed:demo": "ts-node-dev --transpile-only src/scripts/seed-demo.ts"
+    "seed:demo": "ts-node-dev --transpile-only src/scripts/seed-demo.ts",
+    "seed:pensum": "ts-node-dev --transpile-only src/scripts/apply-pensum.ts"
   },
   "dependencies": {
     "axios": "^1.7.9",
