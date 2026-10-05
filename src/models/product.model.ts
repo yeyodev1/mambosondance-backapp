@@ -35,6 +35,7 @@ export interface IProduct {
   style: string;
   accessDurationDays: number | null;
   lessonsCount: number;
+  previewLessonsCount: number;
   durationSeconds: number;
   category: string;
   variants: IVariant[];
@@ -80,6 +81,8 @@ const productSchema = new Schema<IProduct>(
     accessDurationDays: { type: Number, default: null },
     // Persistidos para no contar lecciones en cada listado; los recalcula course-content.service.
     lessonsCount: { type: Number, default: 0 },
+    // Las de vista previa (la bienvenida) se anuncian aparte de las clases del pensum.
+    previewLessonsCount: { type: Number, default: 0 },
     durationSeconds: { type: Number, default: 0 },
     category: { type: String, default: "", trim: true },
     variants: { type: [variantSchema], default: [] },
